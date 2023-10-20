@@ -25,6 +25,7 @@ app.use(require('./routes/index'));
 app.use(require('./routes/auth'));
 app.use(require('./routes/dataasync'));
 app.use(require('./routes/crud'));
+app.use(require('./routes/dashboard'));
  
 //Iniciando el servidor
 app.listen(app.get('port'),()=>{
