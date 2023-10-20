@@ -31,19 +31,30 @@ router.get('/consultar-tramite/:curp', async (req, res) => {
 
 router.put('/actualizar-por-curp/:curp', async (req, res) => {
     try {
-      const { curp } = req.params;
-      const newData = req.body; 
-      
-      // Aquí ya no necesitas manejar una conexión, así que eliminamos esas líneas
-      await TramiteHandler.updateAllTablesByCurp(curp, newData); 
+        const { curp } = req.params;
+        const newData = req.body;
 
-      res.json({ message: 'Registros actualizados con éxito' });
+        // Llama al método de la instancia que acabas de crear
+        await TramiteHandler.actualizarTramitePorCurp(curp, newData);
+
+        res.json({ message: 'Registros actualizados con éxito' });
     } catch (error) {
-      console.error(error);
-      res.status(500).json({ message: 'Error interno del servidor' });
+        console.error(error);
+        res.status(500).json({ message: 'Error interno del servidor' });
     }
 });
 
-  
+
+router.delete('/eliminar-tramite/:curp', async (req, res) => {
+    try {
+        const { curp } = req.params;  // Extrae el CURP de los parámetros de la ruta
+        await TramiteHandler.deleteTramitePorCURP(curp);  // Llama a tu método de eliminación
+        res.json({ message: 'Trámite eliminado con éxito' });  // Respuesta exitosa
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error interno del servidor' });  // Manejo de errores
+    }
+});
+
 
 module.exports = router;

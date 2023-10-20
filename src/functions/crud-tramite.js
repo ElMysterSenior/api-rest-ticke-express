@@ -64,13 +64,13 @@ class TramiteHandler {
           const [results] = await connection.query(
             `SELECT 
             tramite.id AS tramite_id,
-            intermediario.nombreCompleto AS intermediario_nombre,
+            intermediario.nombreCompleto AS nombreCompleto,
             persona.curp, persona.nombre, persona.paterno, persona.materno,
             persona.telefono, persona.celular, persona.correo,
-            niveleducativo.nivel AS nivel_descripcion,
-            municipio.nombre AS municipio_nombre,
-            tema.descripcion AS tema_descripcion,
-            tramite.status AS tramite_status  -- Nueva línea
+            niveleducativo.nivel AS nivelEducativo,
+            municipio.nombre AS municipio,
+            tema.descripcion AS tema,
+            tramite.status AS status  -- Nueva línea
          FROM tramite
          JOIN intermediario ON tramite.intermediario_id = intermediario.id
          JOIN persona ON tramite.persona_id = persona.id
@@ -87,93 +87,116 @@ class TramiteHandler {
       }
     }
 
-    static async updateIntermediario(connection, curp, nombreCompleto) {
-      // Solo actualiza si nombreCompleto está presente
-      if (nombreCompleto) {
-          await connection.query(
-              'UPDATE intermediario SET nombreCompleto = ? WHERE id IN (SELECT intermediario_id FROM tramite JOIN persona ON tramite.persona_id = persona.id WHERE persona.curp = ?)',
-              [nombreCompleto, curp]
-          );
-      }
-      // Si no, no hagas nada para 'intermediario'
-  }
 
-  static async updatePersona(connection, curp, datosPersona) {
-      // Construye dinámicamente la consulta SQL y los parámetros basados en los campos presentes
-      let updates = [];
-      let params = [];
-      for (let [key, value] of Object.entries(datosPersona)) {
-          if (value != null) { // si el valor es null o undefined, no lo incluyas
-              updates.push(`${key} = ?`);
-              params.push(value);
+    //UPDATE POR CURP
+    static async actualizarTramitePorCurp(curp, datos) {
+      let connection;
+      try {
+          connection = await pool.getConnection();
+          await connection.beginTransaction();
+  
+          // Obtenemos los ID relevantes basados en el CURP
+          const [rows] = await connection.execute(`
+              SELECT 
+                  tramite.id AS tramite_id, 
+                  tramite.intermediario_id,
+                  tramite.persona_id,
+                  tramite.nivel_id,
+                  tramite.municipio_id,
+                  tramite.tema_id
+              FROM tramite
+              INNER JOIN persona ON tramite.persona_id = persona.id
+              WHERE persona.curp = ?
+          `, [curp]);
+  
+          if (rows.length === 0) {
+              throw new Error("No se encontró trámite para el CURP proporcionado");
           }
-      }
-
-      if (updates.length > 0) {
-          // Solo ejecuta la actualización si hay al menos un campo para actualizar
-          const sql = `UPDATE persona SET ${updates.join(', ')} WHERE curp = ?`;
-          params.push(curp);
-          await connection.query(sql, params);
-      }
-      // Si no, no hagas nada para 'persona'
-  }
-
-  static async updateTramite(connection, curp, datosTramite) {
-      // Similar a 'updatePersona', construimos la consulta basada en los datos presentes
-      let updates = [];
-      let params = [];
-      for (let [key, value] of Object.entries(datosTramite)) {
-          if (value != null) {
-              updates.push(`${key} = ?`);
-              params.push(value);
+  
+          const ids = rows[0];
+  
+          // Actualizamos la tabla intermediario si es necesario
+          if (datos.nombreCompleto) {
+              await connection.execute(`UPDATE intermediario SET nombreCompleto = ? WHERE id = ?`, [datos.nombreCompleto, ids.intermediario_id]);
           }
+  
+          // Actualizamos la tabla persona si es necesario
+          if (datos.nombre || datos.paterno || datos.materno || datos.telefono || datos.celular || datos.correo) {
+              await connection.execute(`
+                  UPDATE persona 
+                  SET nombre = ?, paterno = ?, materno = ?, telefono = ?, celular = ?, correo = ?
+                  WHERE id = ?
+              `, [datos.nombre, datos.paterno, datos.materno, datos.telefono, datos.celular, datos.correo, ids.persona_id]);
+          }
+  
+          // Actualizamos la tabla tramite si es necesario
+          if (datos.nivel_id || datos.municipio_id || datos.tema_id || datos.status) {
+            await connection.execute(`
+                UPDATE tramite 
+                SET nivel_id = ?, municipio_id = ?, tema_id = ?, status = ?
+                WHERE id = ?
+            `, [datos.nivel_id || ids.nivel_id, datos.municipio_id || ids.municipio_id, datos.tema_id || ids.tema_id, datos.status, ids.tramite_id]);
+        }
+  
+          await connection.commit(); // Todo fue exitoso, así que confirmamos la transacción
+      } catch (error) {
+          if (connection) await connection.rollback(); // Si hay un error, deshacemos la transacción
+          throw error; // Relanzamos el error
+      } finally {
+          if (connection) connection.release(); // Liberamos la conexión de vuelta al pool
       }
-
-      if (updates.length > 0) {
-          // Solo ejecuta la actualización si hay campos para actualizar
-          const sql = `UPDATE tramite SET ${updates.join(', ')} WHERE persona_id = (SELECT id FROM persona WHERE curp = ?)`;
-          params.push(curp);
-          await connection.query(sql, params);
-      }
-      // Si no, no hagas nada para 'tramite'
   }
 
-    // Método que coordina la actualización
-    static async actualizarTramiteCompletoPorCurp(curp, datos) {
+  //DELETE POR CURP
+
+      static async deleteTramitePorCURP(curp) {
         let connection;
         try {
             connection = await pool.getConnection();
             await connection.beginTransaction();
 
-            // Actualizar intermediario
-            if (datos.nombreCompleto) {
-                await this.updateIntermediario(connection, curp, datos.nombreCompleto);
+            // Obtenemos los IDs relevantes basados en el CURP
+            const [rows] = await connection.execute(`
+                SELECT 
+                    tramite.id AS tramite_id,
+                    tramite.intermediario_id,
+                    tramite.persona_id
+                FROM 
+                    tramite
+                INNER JOIN 
+                    persona ON tramite.persona_id = persona.id
+                WHERE 
+                    persona.curp = ?
+            `, [curp]);
+
+            if (rows.length === 0) {
+                throw new Error("No se encontró trámite para el CURP proporcionado");
             }
 
-            // Actualizar persona
-            await this.updatePersona(connection, curp, datos);
+            const ids = rows[0];
 
-            // Actualizar trámite si los datos están presentes
-            if (datos.nivel_id || datos.municipio_id || datos.tema_id) {
-                await this.updateTramite(connection, curp, datos);
-            }
+            // Eliminamos el trámite
+            await connection.execute('DELETE FROM tramite WHERE id = ?', [ids.tramite_id]);
 
-            await connection.commit(); // todo fue exitoso, así que confirmamos la transacción
+            // Eliminamos la entrada de persona
+            await connection.execute('DELETE FROM persona WHERE id = ?', [ids.persona_id]);
+
+            // Eliminamos la entrada de intermediario
+            await connection.execute('DELETE FROM intermediario WHERE id = ?', [ids.intermediario_id]);
+
+            // Si todo ha ido bien, confirmamos la transacción
+            await connection.commit();
         } catch (error) {
-            if (connection) {
-                await connection.rollback(); // si hay un error, deshacemos la transacción
-            }
-            throw error; // relanzamos el error
+            if (connection) await connection.rollback(); // Si hay un error, deshacemos la transacción
+            console.error('Error al eliminar datos:', error);
+            throw error; // Relanzamos el error
         } finally {
-            if (connection) {
-                connection.release(); // liberamos la conexión en cualquier caso
-            }
+            if (connection) connection.release(); // Liberamos la conexión de vuelta al pool
         }
     }
 }
-    
-    
-    
+
+
 
 
 module.exports = TramiteHandler;
